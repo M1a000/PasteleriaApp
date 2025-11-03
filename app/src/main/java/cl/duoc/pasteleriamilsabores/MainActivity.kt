@@ -239,7 +239,7 @@ fun ProductCard(product: Product, modifier: Modifier = Modifier, onClick: () -> 
     Card(
         modifier = modifier.fillMaxWidth().padding(vertical = 8.dp).clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = CremaPastel)
+        colors = CardDefaults.cardColors(containerColor = Blanco)
     ) {
         Column {
             product.image?.let {

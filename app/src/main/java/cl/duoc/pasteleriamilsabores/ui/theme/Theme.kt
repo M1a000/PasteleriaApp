@@ -1,7 +1,6 @@
 package cl.duoc.pasteleriamilsabores.ui.theme
 
 import android.app.Activity
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -20,7 +19,7 @@ private val DarkColorScheme = darkColorScheme(
     onSecondary = CremaPastel,
     onBackground = CremaPastel,
     onSurface = CremaPastel,
-    onSurfaceVariant = GrisClaro
+    onSurfaceVariant = Blanco
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -32,25 +31,22 @@ private val LightColorScheme = lightColorScheme(
     onSecondary = MarronOscuro,
     onBackground = MarronOscuro,
     onSurface = MarronOscuro,
-    onSurfaceVariant = GrisClaro
+    onSurfaceVariant = Blanco
 )
 
 @Composable
 fun PasteleriaMilSaboresTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = false, // Forzar tema claro
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    val colorScheme = LightColorScheme
 
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = true // Forzar status bar para tema claro
         }
     }
 
