@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -28,6 +29,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,8 +42,10 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -55,12 +60,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -78,9 +86,13 @@ import cl.duoc.pasteleriamilsabores.ui.theme.RosaSuave
 import cl.duoc.pasteleriamilsabores.viewmodel.AuthViewModel
 import cl.duoc.pasteleriamilsabores.viewmodel.CartViewModel
 import cl.duoc.pasteleriamilsabores.viewmodel.CartUiState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
@@ -106,8 +118,12 @@ class MainActivity : ComponentActivity() {
                     topBar = {
                         MainTopBar(
                             cartItemCount = cartUiState.items.size,
+                            isUserAuthenticated = authUiState.isAuthenticated,
                             onCartClick = {
                                 navController.navigate("pantallaCarrito")
+                            },
+                            onProfileClick = {
+                                navController.navigate("profile")
                             }
                         )
                     },
@@ -150,7 +166,9 @@ class MainActivity : ComponentActivity() {
                                 onCheckoutClick = {
                                     if (authUiState.isAuthenticated) {
                                         scope.launch {
-                                            snackbarHostState.showSnackbar("Ir a Pagar...")
+                                            snackbarHostState.showSnackbar("Procesando pago...")
+                                            delay(2000)
+                                            navController.navigate("boleta")
                                         }
                                     } else {
                                         navController.navigate("pantallaLogin")
@@ -159,11 +177,26 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        composable("boleta") {
+                            BoletaScreen(
+                                cartUiState = cartUiState,
+                                onFinishClick = {
+                                    cartViewModel.clearCart()
+                                    navController.navigate("listaDeProductos") {
+                                        popUpTo(0)
+                                    }
+                                }
+                            )
+                        }
+
                         composable("pantallaLogin") {
                             LoginScreen(
                                 authUiState = authUiState,
-                                onLoginClick = { email, birthDate, code ->
-                                    authViewModel.loginOrRegister(email, birthDate, code)
+                                onLogin = { email, password ->
+                                    authViewModel.login(email, password)
+                                },
+                                onRegister = { name, email, birthDate, password, discountCode ->
+                                    authViewModel.register(name, email, birthDate, password, discountCode)
                                 },
                                 onClearError = {
                                     authViewModel.clearError()
@@ -179,6 +212,27 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
+
+                        composable("profile") {
+                            ProfileScreen(
+                                authUiState = authUiState,
+                                onUpdateProfile = { currentPassword, newName, newEmail, newPassword ->
+                                    authViewModel.updateProfile(currentPassword, newName, newEmail, newPassword)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Perfil actualizado correctamente")
+                                    }
+                                },
+                                onLogout = {
+                                    authViewModel.logout()
+                                    navController.navigate("listaDeProductos") {
+                                        popUpTo(0)
+                                    }
+                                },
+                                onClearError = {
+                                    authViewModel.clearError()
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -188,7 +242,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainTopBar(cartItemCount: Int, onCartClick: () -> Unit) {
+fun MainTopBar(cartItemCount: Int, isUserAuthenticated: Boolean, onCartClick: () -> Unit, onProfileClick: () -> Unit) {
     TopAppBar(
         title = { Text("Pastelería Mil Sabores", style = MaterialTheme.typography.headlineLarge, fontSize = 24.sp, color = Blanco) },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -203,6 +257,11 @@ fun MainTopBar(cartItemCount: Int, onCartClick: () -> Unit) {
                     }
                 ) {
                     Icon(Icons.Filled.ShoppingCart, "Carrito de Compras", tint = Blanco)
+                }
+            }
+            if (isUserAuthenticated) {
+                IconButton(onClick = onProfileClick) {
+                    Icon(Icons.Filled.AccountCircle, "Perfil de Usuario", tint = Blanco)
                 }
             }
         }
@@ -403,6 +462,164 @@ fun ShoppingCartScreen(
 }
 
 @Composable
+fun BoletaScreen(cartUiState: CartUiState, onFinishClick: () -> Unit) {
+    val subtotal = cartUiState.subtotal
+    val discountAmount = cartUiState.discount
+    val finalTotal = cartUiState.total
+
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("Boleta Electrónica", style = MaterialTheme.typography.headlineLarge, fontSize = 28.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(cartUiState.items) { item ->
+                        CartListItem(item = item)
+                        HorizontalDivider()
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+                Text(
+                    "Subtotal: ${formatPrice(subtotal)}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 18.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (discountAmount > 0) {
+                    Text(
+                        "Descuento: -${formatPrice(discountAmount)}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                Text(
+                    "Total: ${formatPrice(finalTotal)}",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontSize = 22.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = { onFinishClick() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = RosaSuave,
+                    contentColor = Blanco
+                )
+            ) {
+                Text("Finalizar", fontSize = 16.sp)
+            }
+        }
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+fun ProfileScreen(
+    authUiState: AuthUiState,
+    onUpdateProfile: (String, String, String, String?) -> Unit,
+    onLogout: () -> Unit,
+    onClearError: () -> Unit
+) {
+    var name by remember { mutableStateOf(authUiState.user?.name ?: "") }
+    var email by remember { mutableStateOf(authUiState.user?.email ?: "") }
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) { onClearError() }
+
+    Surface(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Mi Perfil", style = MaterialTheme.typography.headlineLarge, fontSize = 32.sp)
+            Spacer(modifier = Modifier.height(24.dp))
+
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Nombre Completo") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Correo Electrónico") },
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = currentPassword,
+                onValueChange = { currentPassword = it },
+                label = { Text("Contraseña Actual") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = newPassword,
+                onValueChange = { newPassword = it },
+                label = { Text("Nueva Contraseña (opcional)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation()
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            if (authUiState.errorMessage != null) {
+                Text(
+                    text = authUiState.errorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+
+            Button(
+                onClick = { onUpdateProfile(currentPassword, name, email, newPassword) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = RosaSuave,
+                    contentColor = Blanco
+                )
+            ) {
+                Text("Actualizar Perfil", fontSize = 16.sp, color = Blanco)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = { onLogout() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = Blanco
+                )
+            ) {
+                Text("Cerrar Sesión", fontSize = 16.sp, color = Blanco)
+            }
+        }
+    }
+}
+
+@Composable
 fun CartListItem(item: CartItem) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
@@ -421,16 +638,24 @@ fun CartListItem(item: CartItem) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun LoginScreen(
     authUiState: AuthUiState,
-    onLoginClick: (String, String, String?) -> Unit,
+    onLogin: (String, String) -> Unit,
+    onRegister: (String, String, String, String, String?) -> Unit,
     onClearError: () -> Unit
 ) {
+    var isLoginMode by remember { mutableStateOf(true) }
+
+    var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var birthDate by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var discountCode by remember { mutableStateOf("") }
+
+    var showDatePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { onClearError() }
 
@@ -440,8 +665,23 @@ fun LoginScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Ingreso / Registro", style = MaterialTheme.typography.headlineLarge, fontSize = 32.sp)
+            Text(
+                if (isLoginMode) "Iniciar Sesión" else "Registrarse",
+                style = MaterialTheme.typography.headlineLarge, fontSize = 32.sp
+            )
             Spacer(modifier = Modifier.height(24.dp))
+
+            if (!isLoginMode) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre Completo") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
@@ -452,25 +692,70 @@ fun LoginScreen(
                 singleLine = true
             )
             Spacer(modifier = Modifier.height(16.dp))
+
+            if (!isLoginMode) {
+                OutlinedTextField(
+                    value = birthDate,
+                    onValueChange = { },
+                    label = { Text("Fecha de Nacimiento") },
+                    placeholder = { Text("Formato: AAAA-MM-DD") },
+                    modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true },
+                    enabled = false,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             OutlinedTextField(
-                value = birthDate,
-                onValueChange = { birthDate = it },
-                label = { Text("Fecha de Nacimiento") },
-                placeholder = { Text("Formato: AAAA-MM-DD") },
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Contraseña") },
                 modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation()
             )
             Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(
-                value = discountCode,
-                onValueChange = { discountCode = it },
-                label = { Text("Código de Descuento (opcional)") },
-                placeholder = { Text("ej: FELICES50") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            Spacer(modifier = Modifier.height(24.dp))
+
+            if (!isLoginMode) {
+                OutlinedTextField(
+                    value = discountCode,
+                    onValueChange = { discountCode = it },
+                    label = { Text("Código de Descuento (opcional)") },
+                    placeholder = { Text("ej: FELICES50") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            if (showDatePicker) {
+                val datePickerState = rememberDatePickerState()
+                DatePickerDialog(
+                    onDismissRequest = { showDatePicker = false },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                val selectedDate = datePickerState.selectedDateMillis
+                                if (selectedDate != null) {
+                                    birthDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply {
+                                        timeZone = TimeZone.getTimeZone("UTC")
+                                    }.format(Date(selectedDate))
+                                }
+                                showDatePicker = false
+                            }
+                        ) {
+                            Text("Aceptar")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDatePicker = false }) {
+                            Text("Cancelar")
+                        }
+                    }
+                ) {
+                    DatePicker(state = datePickerState)
+                }
+            }
+
             if (authUiState.errorMessage != null) {
                 Text(
                     text = authUiState.errorMessage,
@@ -479,15 +764,31 @@ fun LoginScreen(
                 )
             }
             Button(
-                onClick = { onLoginClick(email, birthDate, discountCode) },
+                onClick = {
+                    if (isLoginMode) {
+                        onLogin(email, password)
+                    } else {
+                        onRegister(name, email, birthDate, password, discountCode)
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = RosaSuave,
                     contentColor = Blanco
                 )
             ) {
-                Text("Ingresar / Registrarse", fontSize = 16.sp)
+                Text(
+                    if (isLoginMode) "Ingresar" else "Registrarse",
+                    fontSize = 16.sp
+                )
             }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = if (isLoginMode) "¿No tienes una cuenta? Regístrate" else "¿Ya tienes una cuenta? Inicia Sesión",
+                modifier = Modifier.clickable { isLoginMode = !isLoginMode },
+                textDecoration = TextDecoration.Underline,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
