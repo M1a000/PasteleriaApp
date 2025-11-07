@@ -1,14 +1,18 @@
 package cl.duoc.pasteleriamilsabores
 
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,12 +21,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -32,6 +44,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +70,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +102,8 @@ import cl.duoc.pasteleriamilsabores.ui.theme.RosaSuave
 import cl.duoc.pasteleriamilsabores.viewmodel.AuthViewModel
 import cl.duoc.pasteleriamilsabores.viewmodel.CartViewModel
 import cl.duoc.pasteleriamilsabores.viewmodel.CartUiState
+import cl.duoc.pasteleriamilsabores.viewmodel.WishlistViewModel
+import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
@@ -107,8 +125,35 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val cartViewModel: CartViewModel = viewModel()
                 val authViewModel: AuthViewModel = viewModel()
+                val wishlistViewModel: WishlistViewModel = viewModel()
                 val cartUiState by cartViewModel.uiState.collectAsState()
                 val authUiState by authViewModel.uiState.collectAsState()
+                val wishlistUiState by wishlistViewModel.uiState.collectAsState()
+
+                var showLoginDialog by remember { mutableStateOf(false) }
+
+                if (showLoginDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showLoginDialog = false },
+                        title = { Text("Iniciar Sesión Requerido") },
+                        text = { Text("Debes iniciar sesión para añadir productos a tu lista de deseados.") },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showLoginDialog = false
+                                    navController.navigate("pantallaLogin")
+                                }
+                            ) {
+                                Text("Iniciar Sesión")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showLoginDialog = false }) {
+                                Text("Cancelar")
+                            }
+                        }
+                    )
+                }
 
                 LaunchedEffect(authUiState) {
                     cartViewModel.updateAuthState(authUiState)
@@ -124,6 +169,9 @@ class MainActivity : ComponentActivity() {
                             },
                             onProfileClick = {
                                 navController.navigate("profile")
+                            },
+                            onWishlistClick = {
+                                navController.navigate("wishlist")
                             }
                         )
                     },
@@ -139,8 +187,25 @@ class MainActivity : ComponentActivity() {
 
                         composable("listaDeProductos") {
                             ProductListScreen(
+                                authUiState = authUiState,
                                 onProductClick = { productId ->
                                     navController.navigate("detalleDeProducto/$productId")
+                                },
+                                wishlistViewModel = wishlistViewModel,
+                                onToggleWishlist = {
+                                    if (authUiState.isAuthenticated) {
+                                        wishlistViewModel.toggleWishlist(it)
+                                        scope.launch {
+                                            val message = if (wishlistViewModel.isWishlisted(it)) {
+                                                "Añadido a la lista de deseados"
+                                            } else {
+                                                "Eliminado de la lista de deseados"
+                                            }
+                                            snackbarHostState.showSnackbar(message)
+                                        }
+                                    } else {
+                                        showLoginDialog = true
+                                    }
                                 }
                             )
                         }
@@ -151,10 +216,26 @@ class MainActivity : ComponentActivity() {
                             val productId = backStackEntry.arguments?.getString("productId")
                             ProductDetailScreen(
                                 productId = productId,
+                                wishlistViewModel = wishlistViewModel,
                                 onProductAdded = { product, message ->
                                     cartViewModel.addToCart(product, message)
                                     scope.launch {
                                         snackbarHostState.showSnackbar("¡'${product.name}' añadido al carrito!")
+                                    }
+                                },
+                                onToggleWishlist = {
+                                    if (authUiState.isAuthenticated) {
+                                        wishlistViewModel.toggleWishlist(it)
+                                        scope.launch {
+                                            val message = if (wishlistViewModel.isWishlisted(it)) {
+                                                "Añadido a la lista de deseados"
+                                            } else {
+                                                "Eliminado de la lista de deseados"
+                                            }
+                                            snackbarHostState.showSnackbar(message)
+                                        }
+                                    } else {
+                                        showLoginDialog = true
                                     }
                                 }
                             )
@@ -189,14 +270,29 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        composable("wishlist") {
+                            WishlistScreen(
+                                wishlistUiState = wishlistUiState,
+                                onProductClick = { productId ->
+                                    navController.navigate("detalleDeProducto/$productId")
+                                },
+                                onToggleWishlist = { 
+                                    wishlistViewModel.toggleWishlist(it)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Eliminado de la lista de deseados")
+                                    }
+                                 }
+                            )
+                        }
+
                         composable("pantallaLogin") {
                             LoginScreen(
                                 authUiState = authUiState,
                                 onLogin = { email, password ->
                                     authViewModel.login(email, password)
                                 },
-                                onRegister = { name, email, birthDate, password, discountCode ->
-                                    authViewModel.register(name, email, birthDate, password, discountCode)
+                                onRegister = { name, email, birthDate, password, confirmPassword, discountCode, profilePictureUri ->
+                                    authViewModel.register(name, email, birthDate, password, confirmPassword, discountCode, profilePictureUri)
                                 },
                                 onClearError = {
                                     authViewModel.clearError()
@@ -205,9 +301,17 @@ class MainActivity : ComponentActivity() {
 
                             LaunchedEffect(authUiState.isAuthenticated) {
                                 if (authUiState.isAuthenticated) {
-                                    navController.popBackStack()
+                                    if (authUiState.isAdmin) {
+                                        navController.navigate("adminPanel") {
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                inclusive = true
+                                            }
+                                        }
+                                    } else {
+                                        navController.popBackStack()
+                                    }
                                     scope.launch {
-                                        snackbarHostState.showSnackbar("¡Inicio de sesión exitoso! Descuento aplicado.")
+                                        snackbarHostState.showSnackbar("¡Inicio de sesión exitoso!")
                                     }
                                 }
                             }
@@ -216,11 +320,14 @@ class MainActivity : ComponentActivity() {
                         composable("profile") {
                             ProfileScreen(
                                 authUiState = authUiState,
-                                onUpdateProfile = { currentPassword, newName, newEmail, newPassword ->
-                                    authViewModel.updateProfile(currentPassword, newName, newEmail, newPassword)
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("Perfil actualizado correctamente")
+                                onUpdateProfile = { currentPassword, newName, newEmail, newPassword, newProfilePictureUri ->
+                                    val success = authViewModel.updateProfile(currentPassword, newName, newEmail, newPassword, newProfilePictureUri)
+                                    if (success) {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Perfil actualizado correctamente")
+                                        }
                                     }
+                                    success
                                 },
                                 onLogout = {
                                     authViewModel.logout()
@@ -233,6 +340,17 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
+                        
+                        composable("adminPanel") {
+                            AdminScreen(
+                                onLogout = {
+                                    authViewModel.logout()
+                                    navController.navigate("listaDeProductos") {
+                                        popUpTo(0)
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -242,7 +360,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainTopBar(cartItemCount: Int, isUserAuthenticated: Boolean, onCartClick: () -> Unit, onProfileClick: () -> Unit) {
+fun MainTopBar(cartItemCount: Int, isUserAuthenticated: Boolean, onCartClick: () -> Unit, onProfileClick: () -> Unit, onWishlistClick: () -> Unit) {
     TopAppBar(
         title = { Text("Pastelería Mil Sabores", style = MaterialTheme.typography.headlineLarge, fontSize = 24.sp, color = Blanco) },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -260,6 +378,9 @@ fun MainTopBar(cartItemCount: Int, isUserAuthenticated: Boolean, onCartClick: ()
                 }
             }
             if (isUserAuthenticated) {
+                IconButton(onClick = onWishlistClick) {
+                    Icon(Icons.Filled.Favorite, "Lista de Deseados", tint = Blanco)
+                }
                 IconButton(onClick = onProfileClick) {
                     Icon(Icons.Filled.AccountCircle, "Perfil de Usuario", tint = Blanco)
                 }
@@ -268,48 +389,128 @@ fun MainTopBar(cartItemCount: Int, isUserAuthenticated: Boolean, onCartClick: ()
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProductListScreen(onProductClick: (String) -> Unit) {
-    val groupedProducts = ProductRepository.getAllProducts().groupBy { it.category }
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
-        groupedProducts.forEach { (categoryName, productsInCategory) ->
-            item {
-                Text(
-                    text = categoryName,
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontSize = 26.sp,
-                    color = Blanco,
-                    modifier = Modifier.fillMaxWidth().background(RosaSuave).padding(horizontal = 16.dp, vertical = 8.dp)
+fun ProductListScreen(
+    authUiState: AuthUiState,
+    onProductClick: (String) -> Unit,
+    wishlistViewModel: WishlistViewModel,
+    onToggleWishlist: (String) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val categories = remember { listOf("Todas") + ProductRepository.getAllProducts().map { it.category }.distinct() }
+    var selectedCategory by remember { mutableStateOf("Todas") }
+    val wishlistUiState by wishlistViewModel.uiState.collectAsState()
+
+    val filteredProducts = remember(searchQuery, selectedCategory) {
+        val allProducts = ProductRepository.getAllProducts()
+
+        val productsByCategory = if (selectedCategory == "Todas") {
+            allProducts
+        } else {
+            allProducts.filter { it.category == selectedCategory }
+        }
+
+        if (searchQuery.isBlank()) {
+            productsByCategory
+        } else {
+            productsByCategory.filter {
+                it.name.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("Buscar producto...") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "Buscar", tint = Chocolate) },
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        )
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(categories) { category ->
+                FilterChip(
+                    selected = category == selectedCategory,
+                    onClick = { selectedCategory = category },
+                    label = { Text(category) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = Chocolate,
+                        labelColor = Blanco,
+                        selectedContainerColor = RosaSuave,
+                        selectedLabelColor = Blanco
+                    )
                 )
             }
-            items(productsInCategory) { product ->
-                ProductCard(
-                    product = product,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    onClick = { onProductClick(product.id) }
-                )
+        }
+
+        if (filteredProducts.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No se encontraron coincidencias.")
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                items(filteredProducts) { product ->
+                    ProductCard(
+                        product = product,
+                        isWishlisted = wishlistUiState.wishlistedProductIds.contains(product.id),
+                        onToggleWishlist = { onToggleWishlist(product.id) },
+                        onClick = { onProductClick(product.id) }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun ProductCard(product: Product, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
+fun ProductCard(
+    product: Product,
+    modifier: Modifier = Modifier,
+    isWishlisted: Boolean,
+    onToggleWishlist: () -> Unit,
+    onClick: () -> Unit = {}
+) {
     Card(
         modifier = modifier.fillMaxWidth().padding(vertical = 8.dp).clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         colors = CardDefaults.cardColors(containerColor = Blanco)
     ) {
         Column {
-            product.image?.let {
-                Image(
-                    painter = painterResource(id = it),
-                    contentDescription = product.name,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(150.dp),
-                    contentScale = ContentScale.Crop
-                )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                product.image?.let {
+                    AsyncImage(
+                        model = it,
+                        contentDescription = product.name,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                IconButton(
+                    onClick = onToggleWishlist,
+                    modifier = Modifier.align(Alignment.TopEnd)
+                ) {
+                    Icon(
+                        imageVector = if (isWishlisted) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = "Añadir a deseados",
+                        tint = if (isWishlisted) Color.Red else Color.Gray
+                    )
+                }
             }
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(text = product.name, style = MaterialTheme.typography.headlineLarge, fontSize = 22.sp)
@@ -328,23 +529,80 @@ fun ProductCard(product: Product, modifier: Modifier = Modifier, onClick: () -> 
 }
 
 @Composable
-fun ProductDetailScreen(productId: String?, onProductAdded: (Product, String?) -> Unit) {
+fun WishlistScreen(
+    wishlistUiState: cl.duoc.pasteleriamilsabores.viewmodel.WishlistUiState,
+    onProductClick: (String) -> Unit,
+    onToggleWishlist: (String) -> Unit
+) {
+    val wishlistedProducts = ProductRepository.getAllProducts().filter { wishlistUiState.wishlistedProductIds.contains(it.id) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Mi Lista de Deseados", style = MaterialTheme.typography.headlineLarge, fontSize = 28.sp)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (wishlistedProducts.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No has añadido nada a tu lista de deseados.")
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                items(wishlistedProducts) { product ->
+                    ProductCard(
+                        product = product,
+                        isWishlisted = true,
+                        onToggleWishlist = { onToggleWishlist(product.id) },
+                        onClick = { onProductClick(product.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProductDetailScreen(
+    productId: String?,
+    wishlistViewModel: WishlistViewModel,
+    onProductAdded: (Product, String?) -> Unit,
+    onToggleWishlist: (String) -> Unit
+) {
     val product = ProductRepository.getAllProducts().find { it.id == productId }
     var specialMessage by remember { mutableStateOf("") }
+    val wishlistUiState by wishlistViewModel.uiState.collectAsState()
+
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (product != null) {
+                val isWishlisted = wishlistUiState.wishlistedProductIds.contains(product.id)
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     item {
-                        product.image?.let {
-                            Image(
-                                painter = painterResource(id = it),
-                                contentDescription = product.name,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(250.dp),
-                                contentScale = ContentScale.Crop
-                            )
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            product.image?.let {
+                                AsyncImage(
+                                    model = it,
+                                    contentDescription = product.name,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(250.dp),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                            IconButton(
+                                onClick = { onToggleWishlist(product.id) },
+                                modifier = Modifier.align(Alignment.TopEnd)
+                            ) {
+                                Icon(
+                                    imageVector = if (isWishlisted) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                    contentDescription = "Añadir a deseados",
+                                    tint = if (isWishlisted) Color.Red else Color.Gray
+                                )
+                            }
                         }
                     }
                     item {
@@ -527,97 +785,239 @@ fun BoletaScreen(cartUiState: CartUiState, onFinishClick: () -> Unit) {
 @Composable
 fun ProfileScreen(
     authUiState: AuthUiState,
-    onUpdateProfile: (String, String, String, String?) -> Unit,
+    onUpdateProfile: (String, String, String, String?, String?) -> Boolean,
     onLogout: () -> Unit,
     onClearError: () -> Unit
 ) {
-    var name by remember { mutableStateOf(authUiState.user?.name ?: "") }
-    var email by remember { mutableStateOf(authUiState.user?.email ?: "") }
+    var editingField by remember { mutableStateOf<String?>(null) }
+    var newValue by remember { mutableStateOf("") }
     var currentPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
+    var confirmNewPassword by remember { mutableStateOf("") }
+    
+    var profilePictureUri by remember { mutableStateOf(authUiState.user?.profilePictureUri?.let { Uri.parse(it) }) }
+    var showPhotoDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { onClearError() }
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri: Uri? ->
+            profilePictureUri = uri
+        }
+    )
+
+    if (showPhotoDialog) {
+        AlertDialog(
+            onDismissRequest = { showPhotoDialog = false },
+            title = { Text("Cambiar foto de perfil") },
+            text = { Text("¿Deseas seleccionar una nueva foto de tu galería?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPhotoDialog = false
+                        imagePickerLauncher.launch("image/*")
+                    }
+                ) {
+                    Text("Sí")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPhotoDialog = false }) {
+                    Text("No")
+                }
+            }
+        )
+    }
+
+    if (editingField != null) {
+        val user = authUiState.user!!
+        AlertDialog(
+            onDismissRequest = { editingField = null },
+            title = { Text("Editar ${editingField}") },
+            text = {
+                Column {
+                    if (editingField == "Contraseña") {
+                        OutlinedTextField(
+                            value = newPassword,
+                            onValueChange = { newPassword = it },
+                            label = { Text("Nueva contraseña") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = confirmNewPassword,
+                            onValueChange = { confirmNewPassword = it },
+                            label = { Text("Confirmar nueva contraseña") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        OutlinedTextField(
+                            value = newValue,
+                            onValueChange = { newValue = it },
+                            label = { Text("Nuevo ${editingField}") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = currentPassword,
+                        onValueChange = { currentPassword = it },
+                        label = { Text("Contraseña actual para confirmar") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (authUiState.errorMessage != null) {
+                        Text(
+                            text = authUiState.errorMessage,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val success = when (editingField) {
+                            "Nombre" -> onUpdateProfile(currentPassword, newValue, user.email, null, profilePictureUri?.toString())
+                            "Correo" -> onUpdateProfile(currentPassword, user.name, newValue, null, profilePictureUri?.toString())
+                            "Contraseña" -> {
+                                if (newPassword == confirmNewPassword) {
+                                    onUpdateProfile(currentPassword, user.name, user.email, newPassword, profilePictureUri?.toString())
+                                } else {
+                                    // Idealmente, mostrar un error al usuario aquí
+                                    false
+                                }
+                            }
+                            else -> false
+                        }
+                        if (success) {
+                            editingField = null
+                            newValue = ""
+                            currentPassword = ""
+                            newPassword = ""
+                            confirmNewPassword = ""
+                        }
+                    }
+                ) {
+                    Text("Confirmar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingField = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(authUiState) {
+        if (authUiState.user != null) {
+            profilePictureUri = authUiState.user.profilePictureUri?.let { Uri.parse(it) }
+        }
+    }
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Mi Perfil", style = MaterialTheme.typography.headlineLarge, fontSize = 32.sp)
-            Spacer(modifier = Modifier.height(24.dp))
-
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Nombre Completo") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
             Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("Correo Electrónico") },
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                singleLine = true
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = currentPassword,
-                onValueChange = { currentPassword = it },
-                label = { Text("Contraseña Actual") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation()
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = newPassword,
-                onValueChange = { newPassword = it },
-                label = { Text("Nueva Contraseña (opcional)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation()
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-
-            if (authUiState.errorMessage != null) {
-                Text(
-                    text = authUiState.errorMessage,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(bottom = 8.dp)
+            
+            if (profilePictureUri != null) {
+                AsyncImage(
+                    model = profilePictureUri,
+                    contentDescription = "Foto de perfil",
+                    modifier = Modifier.size(150.dp).clip(CircleShape),
+                    contentScale = ContentScale.Crop
                 )
+            } else {
+                Icon(Icons.Filled.AccountCircle, contentDescription = "Foto de perfil por defecto", modifier = Modifier.size(150.dp))
+            }
+            Text(
+                text = "Cambiar foto de perfil",
+                modifier = Modifier.clickable { showPhotoDialog = true }.padding(8.dp),
+                color = MaterialTheme.colorScheme.primary,
+                textDecoration = TextDecoration.Underline
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            ProfileInfoRow(
+                label = "Nombre:",
+                value = authUiState.user?.name ?: "",
+                onEditClick = { 
+                    newValue = authUiState.user?.name ?: ""
+                    editingField = "Nombre" 
+                }
+            )
+            ProfileInfoRow(
+                label = "Correo:",
+                value = authUiState.user?.email ?: "",
+                onEditClick = { 
+                    newValue = authUiState.user?.email ?: ""
+                    editingField = "Correo" 
+                }
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            TextButton(onClick = { editingField = "Contraseña" }) {
+                Text("Cambiar contraseña")
             }
 
+            Spacer(modifier = Modifier.weight(1f))
+
             Button(
-                onClick = { onUpdateProfile(currentPassword, name, email, newPassword) },
+                onClick = onLogout,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = RosaSuave,
-                    contentColor = Blanco
-                )
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
-                Text("Actualizar Perfil", fontSize = 16.sp, color = Blanco)
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = { onLogout() },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = Blanco
-                )
-            ) {
-                Text("Cerrar Sesión", fontSize = 16.sp, color = Blanco)
+                Text("Cerrar Sesión", color = Blanco)
             }
         }
     }
 }
+
+@Composable
+fun AdminScreen(onLogout: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Panel de Administrador", style = MaterialTheme.typography.headlineLarge)
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("¡Bienvenido, dueño! Aquí podrás gestionar tu pastelería.")
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = onLogout,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+        ) {
+            Text("Cerrar Sesión", color = Blanco)
+        }
+    }
+}
+
+@Composable
+fun ProfileInfoRow(label: String, value: String, onEditClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = "$label $value", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            text = "Editar",
+            modifier = Modifier.clickable(onClick = onEditClick),
+            color = MaterialTheme.colorScheme.primary,
+            textDecoration = TextDecoration.Underline
+        )
+    }
+}
+
 
 @Composable
 fun CartListItem(item: CartItem) {
@@ -644,7 +1044,7 @@ fun CartListItem(item: CartItem) {
 fun LoginScreen(
     authUiState: AuthUiState,
     onLogin: (String, String) -> Unit,
-    onRegister: (String, String, String, String, String?) -> Unit,
+    onRegister: (String, String, String, String, String, String?, String?) -> Unit,
     onClearError: () -> Unit
 ) {
     var isLoginMode by remember { mutableStateOf(true) }
@@ -653,7 +1053,16 @@ fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var birthDate by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
     var discountCode by remember { mutableStateOf("") }
+    var profilePictureUri by remember { mutableStateOf<Uri?>(null) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri: Uri? ->
+            profilePictureUri = uri
+        }
+    )
 
     var showDatePicker by remember { mutableStateOf(false) }
 
@@ -665,6 +1074,30 @@ fun LoginScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (!isLoginMode) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.clickable { imagePickerLauncher.launch("image/*") }) {
+                    if (profilePictureUri != null) {
+                        AsyncImage(
+                            model = profilePictureUri,
+                            contentDescription = "Foto de perfil",
+                            modifier = Modifier.size(150.dp).clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(Icons.Filled.AccountCircle, contentDescription = "Añadir foto de perfil", modifier = Modifier.size(150.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+            } else {
+                Image(
+                    painter = painterResource(id = R.drawable.login_icon),
+                    contentDescription = "Login Icon",
+                    modifier = Modifier.size(200.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Text(
                 if (isLoginMode) "Iniciar Sesión" else "Registrarse",
                 style = MaterialTheme.typography.headlineLarge, fontSize = 32.sp
@@ -717,6 +1150,16 @@ fun LoginScreen(
 
             if (!isLoginMode) {
                 OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = { Text("Confirmar Contraseña") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
                     value = discountCode,
                     onValueChange = { discountCode = it },
                     label = { Text("Código de Descuento (opcional)") },
@@ -768,7 +1211,7 @@ fun LoginScreen(
                     if (isLoginMode) {
                         onLogin(email, password)
                     } else {
-                        onRegister(name, email, birthDate, password, discountCode)
+                        onRegister(name, email, birthDate, password, confirmPassword, discountCode, profilePictureUri?.toString())
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -806,7 +1249,9 @@ fun ProductCardPreview() {
         ProductCard(
             product = Product(
                 "TC001", "Tortas", "Torta de Chocolate", 45000, "Descripción de prueba.", R.drawable.torta_cuadrada_chocolate
-            )
+            ),
+            isWishlisted = false,
+            onToggleWishlist = {}
         )
     }
 }

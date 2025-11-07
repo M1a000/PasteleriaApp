@@ -21,7 +21,12 @@ class AuthViewModel : ViewModel() {
     // Simulación de base de datos de usuarios en memoria
     private val users = mutableListOf<User>()
 
-    fun register(name: String, email: String, birthDateStr: String, password: String, discountCode: String?) {
+    fun register(name: String, email: String, birthDateStr: String, password: String, confirmPassword: String, discountCode: String?, profilePictureUri: String?) {
+        if (password != confirmPassword) {
+            _uiState.update { it.copy(errorMessage = "Error: Las contraseñas no coinciden.") }
+            return
+        }
+
         if (!isEmailValid(email)) {
             _uiState.update { it.copy(errorMessage = "Error: El email no es válido.") }
             return
@@ -51,7 +56,8 @@ class AuthViewModel : ViewModel() {
             email = email,
             birthDate = birthDate,
             discountCode = finalDiscountCode,
-            passwordHash = password.hashCode().toString() // Simulación de hash
+            passwordHash = password.hashCode().toString(), // Simulación de hash
+            profilePictureUri = profilePictureUri
         )
 
         users.add(newUser)
@@ -66,6 +72,26 @@ class AuthViewModel : ViewModel() {
     }
 
     fun login(email: String, password: String) {
+        if (email.equals("admin@milsabores.cl", ignoreCase = true) && password == "admin1234") {
+            val adminUser = User(
+                id = "admin",
+                name = "Administrador",
+                email = "admin@milsabores.cl",
+                birthDate = LocalDate.now(), // Placeholder
+                passwordHash = password.hashCode().toString(),
+                profilePictureUri = null
+            )
+            _uiState.update {
+                it.copy(
+                    isAuthenticated = true,
+                    user = adminUser,
+                    isAdmin = true,
+                    errorMessage = null
+                )
+            }
+            return
+        }
+
         val user = users.find { it.email.equals(email, ignoreCase = true) }
 
         if (user == null) {
@@ -82,31 +108,32 @@ class AuthViewModel : ViewModel() {
             it.copy(
                 isAuthenticated = true,
                 user = user,
+                isAdmin = false,
                 errorMessage = null
             )
         }
     }
 
-    fun updateProfile(currentPassword: String, newName: String, newEmail: String, newPassword: String?) {
+    fun updateProfile(currentPassword: String, newName: String, newEmail: String, newPassword: String?, newProfilePictureUri: String?): Boolean {
         val currentUser = _uiState.value.user
         if (currentUser == null) {
             _uiState.update { it.copy(errorMessage = "Error: No hay sesión activa.") }
-            return
+            return false
         }
 
         if (currentUser.passwordHash != currentPassword.hashCode().toString()) {
             _uiState.update { it.copy(errorMessage = "Error: La contraseña actual es incorrecta.") }
-            return
+            return false
         }
 
         if (!isEmailValid(newEmail)) {
             _uiState.update { it.copy(errorMessage = "Error: El nuevo email no es válido.") }
-            return
+            return false
         }
 
         if (users.any { it.email.equals(newEmail, ignoreCase = true) && it.id != currentUser.id }) {
             _uiState.update { it.copy(errorMessage = "Error: El nuevo correo ya está en uso.") }
-            return
+            return false
         }
 
         val newPasswordHash = if (!newPassword.isNullOrBlank()) {
@@ -118,7 +145,8 @@ class AuthViewModel : ViewModel() {
         val updatedUser = currentUser.copy(
             name = newName,
             email = newEmail,
-            passwordHash = newPasswordHash
+            passwordHash = newPasswordHash,
+            profilePictureUri = newProfilePictureUri
         )
 
         val userIndex = users.indexOfFirst { it.id == currentUser.id }
@@ -127,6 +155,7 @@ class AuthViewModel : ViewModel() {
         }
 
         _uiState.update { it.copy(user = updatedUser, errorMessage = null) }
+        return true
     }
 
     fun clearError() {
